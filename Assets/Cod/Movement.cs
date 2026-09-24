@@ -8,6 +8,9 @@ public class PlatformerController : MonoBehaviour
     public float acceleration = 60f;
     public float airControl = 0.5f;
 
+    [Header("Sprint")]
+    public float sprintMultiplier = 1.6f;
+
     [Header("Jump")]
     public float jumpHeight = 2.2f;
     public float gravity = -25f;
@@ -27,7 +30,14 @@ public class PlatformerController : MonoBehaviour
     private float coyoteTimer;
     private float jumpBufferTimer;
     private bool isGrounded;
+    private bool isSprinting;
     private Transform currentPlatform;
+
+    // Public read-only state for other scripts (e.g. WalkCycleDriver) to use
+    public bool IsGrounded => isGrounded;
+    public bool IsSprinting => isSprinting;
+    public float VerticalVelocity => velocity.y;
+    public Vector3 HorizontalVelocity => new Vector3(velocity.x, 0f, velocity.z);
 
     void Start()
     {
@@ -69,6 +79,9 @@ public class PlatformerController : MonoBehaviour
 
     void HandleMovement()
     {
+        isSprinting = Input.GetKey(KeyCode.LeftShift) && isGrounded;
+        float currentMoveSpeed = moveSpeed * (isSprinting ? sprintMultiplier : 1f);
+
         float h = Input.GetAxisRaw("Horizontal");
         float v = Input.GetAxisRaw("Vertical");
 
@@ -76,7 +89,7 @@ public class PlatformerController : MonoBehaviour
         Vector3 camRight = Camera.main.transform.right; camRight.y = 0; camRight.Normalize();
         Vector3 moveDir = (camForward * v + camRight * h).normalized;
 
-        Vector3 targetVel = moveDir * moveSpeed;
+        Vector3 targetVel = moveDir * currentMoveSpeed;
         float control = isGrounded ? 1f : airControl;
         velocity.x = Mathf.Lerp(velocity.x, targetVel.x, acceleration * control * Time.deltaTime);
         velocity.z = Mathf.Lerp(velocity.z, targetVel.z, acceleration * control * Time.deltaTime);
@@ -118,7 +131,6 @@ public class PlatformerController : MonoBehaviour
     void ApplyRotationDelta(Quaternion delta, Transform platform)
     {
         Vector3 eulerDelta = delta.eulerAngles;
-        // Normalize angle to avoid huge jumps from 359 -> 0 wraparound
         float yawDelta = Mathf.DeltaAngle(0f, eulerDelta.y);
 
         transform.Rotate(0f, yawDelta, 0f);
