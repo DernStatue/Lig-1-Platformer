@@ -1,6 +1,7 @@
 
 using UnityEngine;
 
+[DefaultExecutionOrder(-100)]
 public class MovingPlatform : MonoBehaviour
 {
     [Header("Movement")]
@@ -14,13 +15,18 @@ public class MovingPlatform : MonoBehaviour
 
     private int targetIndex;
     private float waitTimer;
-    private Vector3 prevPos;
-    private Quaternion prevRot;
+    private Vector3 previousPosition;
+    private Quaternion previousRotation;
 
     void Start()
     {
-        prevPos = transform.position;
-        prevRot = transform.rotation;
+        if (waypoints == null || waypoints.Length == 0)
+            return;
+
+        targetIndex = waypoints.Length > 1 ? 1 : 0;
+
+        previousPosition = transform.position;
+        previousRotation = transform.rotation;
     }
 
     void Update()
@@ -46,21 +52,25 @@ public class MovingPlatform : MonoBehaviour
                 speed * Time.deltaTime
             );
 
-            if (Vector3.Distance(transform.position, target.position) < 0.05f)
+            if (Vector3.Distance(transform.position, target.position)
+                < 0.05f)
             {
                 targetIndex = (targetIndex + 1) % waypoints.Length;
                 waitTimer = waitTime;
             }
         }
 
-        // Calculate the platform's movement since the previous frame.
-        LastDelta = transform.position - prevPos;
+        RecordMovement();
+    }
+
+    void RecordMovement()
+    {
+        LastDelta = transform.position - previousPosition;
 
         LastRotationDelta =
-            transform.rotation * Quaternion.Inverse(prevRot);
+            transform.rotation * Quaternion.Inverse(previousRotation);
 
-        // Always update previous transform values.
-        prevPos = transform.position;
-        prevRot = transform.rotation;
+        previousPosition = transform.position;
+        previousRotation = transform.rotation;
     }
 }

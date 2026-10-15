@@ -1,6 +1,7 @@
 
 using UnityEngine;
 
+[DefaultExecutionOrder(0)]
 [RequireComponent(typeof(CharacterController))]
 public class PlatformerController : MonoBehaviour
 {
@@ -33,13 +34,19 @@ public class PlatformerController : MonoBehaviour
     private float jumpBufferTimer;
     private bool isGrounded;
     private bool isSprinting;
+    private bool jumpedThisFrame;
 
-    // Public read-only state for animation and other scripts
+    private Transform currentPlatform;
+    private MovingPlatform currentMovingPlatform;
+    private RotatingPlatform currentRotatingPlatform;
+
     public bool IsGrounded => isGrounded;
     public bool IsSprinting => isSprinting;
     public float VerticalVelocity => velocity.y;
+
     public Vector3 HorizontalVelocity =>
         new Vector3(velocity.x, 0f, velocity.z);
+
     public float HorizontalSpeed => HorizontalVelocity.magnitude;
 
     void Awake()
@@ -49,9 +56,14 @@ public class PlatformerController : MonoBehaviour
 
     void Update()
     {
-        CheckPlatform();
+        jumpedThisFrame = false;
+
         CheckGround();
         HandleJump();
+
+        if (!jumpedThisFrame)
+            CheckPlatform();
+
         HandleMovement();
 
         velocity.y += gravity * Time.deltaTime;
@@ -65,12 +77,12 @@ public class PlatformerController : MonoBehaviour
             isGrounded = Physics.CheckSphere(
                 groundCheck.position,
                 groundCheckRadius,
-                groundMask
+                groundMask,
+                QueryTriggerInteraction.Ignore
             );
         }
         else
         {
-            // Fallback if Ground Check hasn't been assigned.
             isGrounded = controller.isGrounded;
         }
 
@@ -90,15 +102,21 @@ public class PlatformerController : MonoBehaviour
 
         if (jumpBufferTimer > 0f && coyoteTimer > 0f)
         {
+            jumpedThisFrame = true;
+            ClearPlatform();
+
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+
             jumpBufferTimer = 0f;
             coyoteTimer = 0f;
+            isGrounded = false;
         }
     }
 
     void HandleMovement()
     {
-        isSprinting = Input.GetKey(KeyCode.LeftShift) && isGrounded;
+        isSprinting =
+            Input.GetKey(KeyCode.LeftShift) && isGrounded;
 
         float currentMoveSpeed =
             moveSpeed * (isSprinting ? sprintMultiplier : 1f);
@@ -148,55 +166,101 @@ public class PlatformerController : MonoBehaviour
 
     void CheckPlatform()
     {
+        // Apply movement from the platform detected last frame.
+        if (currentPlatform != null)
+        {
+            Vector3 platformDelta = Vector3.zero;
+            Quaternion rotationDelta = Quaternion.identity;
+
+            if (currentMovingPlatform != null)
+            {
+                platformDelta = currentMovingPlatform.LastDelta;
+                rotationDelta =
+                    currentMovingPlatform.LastRotationDelta;
+            }
+            else if (currentRotatingPlatform != null)
+            {
+                platformDelta = currentRotatingPlatform.LastDelta;
+                rotationDelta =
+                    currentRotatingPlatform.LastRotationDelta;
+            }
+
+            Vector3 previousPlatformPosition =
+                currentPlatform.position - platformDelta;
+
+            Vector3 oldPlayerPosition = transform.position;
+
+            Vector3 newPlayerPosition =
+                currentPlatform.position +
+                rotationDelta *
+                (oldPlayerPosition - previousPlatformPosition);
+
+            controller.Move(newPlayerPosition - oldPlayerPosition);
+
+            // Carry the player's facing direction with platform yaw.
+            float yawDelta = Mathf.DeltaAngle(
+                0f,
+                rotationDelta.eulerAngles.y
+            );
+
+            transform.Rotate(0f, yawDelta, 0f);
+        }
+
+        // Find a supported platform beneath the player's feet.
+        Vector3 origin = groundCheck != null
+            ? groundCheck.position + Vector3.up * 0.1f
+            : transform.position;
+
         if (Physics.Raycast(
-            transform.position,
+            origin,
             Vector3.down,
             out RaycastHit hit,
             platformRayDistance,
-            groundMask))
+            groundMask,
+            QueryTriggerInteraction.Ignore))
         {
-            Transform hitPlatform = hit.collider.transform;
+            MovingPlatform moving =
+                hit.collider.GetComponentInParent<MovingPlatform>();
 
-            var moving = hitPlatform.GetComponent<MovingPlatform>();
-            var rotating = hitPlatform.GetComponent<RotatingPlatform>();
+            RotatingPlatform rotating =
+                hit.collider.GetComponentInParent<RotatingPlatform>();
 
             if (moving != null)
             {
-                controller.Move(moving.LastDelta);
-                ApplyRotationDelta(
-                    moving.LastRotationDelta,
-                    hitPlatform
-                );
+                SetPlatform(moving.transform, moving, null);
+                return;
             }
-            else if (rotating != null)
+
+            if (rotating != null)
             {
-                ApplyRotationDelta(
-                    rotating.LastRotationDelta,
-                    hitPlatform
-                );
+                SetPlatform(rotating.transform, null, rotating);
+                return;
             }
         }
+
+        ClearPlatform();
     }
 
-    void ApplyRotationDelta(Quaternion delta, Transform platform)
+    void SetPlatform(
+        Transform platform,
+        MovingPlatform moving,
+        RotatingPlatform rotating)
     {
-        float yawDelta = Mathf.DeltaAngle(
-            0f,
-            delta.eulerAngles.y
-        );
-
-        transform.Rotate(0f, yawDelta, 0f);
-
-        Vector3 toPlayer = transform.position - platform.position;
-        Vector3 rotated = Quaternion.Euler(0f, yawDelta, 0f)
-            * toPlayer;
-
-        controller.Move(rotated - toPlayer);
+        currentPlatform = platform;
+        currentMovingPlatform = moving;
+        currentRotatingPlatform = rotating;
     }
 
-    // Called by BouncePad or other external triggers.
-    public void SetVerticalVelocity(float v)
+    void ClearPlatform()
     {
-        velocity.y = v;
+        currentPlatform = null;
+        currentMovingPlatform = null;
+        currentRotatingPlatform = null;
+    }
+
+    public void SetVerticalVelocity(float value)
+    {
+        ClearPlatform();
+        velocity.y = value;
     }
 }
